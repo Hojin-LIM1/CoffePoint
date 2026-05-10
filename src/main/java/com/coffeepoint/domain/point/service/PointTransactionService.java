@@ -23,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 트랜잭션 경계:
  * ┌─ @Transactional ─────────────────────────────┐
  * │  1. 포인트 조회 (findOrCreate)                 │
- * │  2. 충전 금액 유효성 검증 (엔티티 내부)            │
+ * │  2. 충전 금액 유효성 검증 (엔티티 내부)          │
  * │  3. 잔액 증가 (@Version 낙관적 락)             │
  * │  4. 이력 저장 (Append-Only)                    │
  * │  5. 커밋                                       │

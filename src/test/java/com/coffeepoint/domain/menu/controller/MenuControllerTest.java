@@ -1,5 +1,7 @@
 package com.coffeepoint.domain.menu.controller;
 
+import com.coffeepoint.domain.point.repository.PointHistoryRepository;
+import com.coffeepoint.domain.point.repository.PointRepository;
 import com.coffeepoint.domain.menu.entity.Menu;
 import com.coffeepoint.domain.menu.repository.MenuRepository;
 import com.coffeepoint.domain.order.entity.Order;
@@ -29,10 +31,14 @@ class MenuControllerTest {
     @Autowired private MenuRepository menuRepository;
     @Autowired private OrderRepository orderRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private PointHistoryRepository pointHistoryRepository;
+    @Autowired private PointRepository pointRepository;
 
     @BeforeEach
     void setUp() {
         orderRepository.deleteAll();
+        pointHistoryRepository.deleteAll();
+        pointRepository.deleteAll();
         menuRepository.deleteAll();
         userRepository.deleteAll();
     }
