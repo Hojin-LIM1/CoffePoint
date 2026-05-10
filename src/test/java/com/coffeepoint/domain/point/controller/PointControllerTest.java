@@ -1,5 +1,7 @@
 package com.coffeepoint.domain.point.controller;
 
+import com.coffeepoint.domain.order.repository.OrderRepository;
+import com.coffeepoint.domain.menu.repository.MenuRepository;
 import com.coffeepoint.domain.point.entity.Point;
 import com.coffeepoint.domain.point.repository.PointHistoryRepository;
 import com.coffeepoint.domain.point.repository.PointRepository;
@@ -34,13 +36,17 @@ class PointControllerTest {
     @Autowired private UserRepository userRepository;
     @Autowired private PointRepository pointRepository;
     @Autowired private PointHistoryRepository pointHistoryRepository;
+    @Autowired private OrderRepository orderRepository;
+    @Autowired private MenuRepository menuRepository;
 
     private Long userId;
 
     @BeforeEach
     void setUp() {
+        orderRepository.deleteAll();
         pointHistoryRepository.deleteAll();
         pointRepository.deleteAll();
+        menuRepository.deleteAll();
         userRepository.deleteAll();
 
         User user = userRepository.save(User.builder().name("테스트유저").build());

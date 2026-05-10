@@ -21,5 +21,22 @@ services:
     ports:
       - "6379:6379"
 
+  # ============================================================
+  # 부하 테스트 (k6)
+  # 실행: docker-compose --profile loadtest run k6
+  # ============================================================
+  k6:
+    image: grafana/k6:latest
+    container_name: coffee-point-k6
+    profiles: ["loadtest"]
+    volumes:
+      - ./load-test:/scripts
+    environment:
+      - BASE_URL=http://host.docker.internal:8080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # 기본: 전체 시나리오 / 변경 가능: /scripts/concurrency-test.js
+    command: run /scripts/load-test-v2.js
+
 volumes:
   mysql-data:

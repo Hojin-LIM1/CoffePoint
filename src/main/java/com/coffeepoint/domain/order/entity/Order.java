@@ -55,5 +55,6 @@ public class Order {
         this.menu = menu;
         this.price = price;
         this.status = OrderStatus.COMPLETED;
+        this.createdAt = LocalDateTime.now(); // JPA Auditing이 persist 시 덮어쓰지만, 단위 테스트에서 null 방지
     }
 }

@@ -1,5 +1,7 @@
 package com.coffeepoint.domain.point;
 
+import com.coffeepoint.domain.order.repository.OrderRepository;
+import com.coffeepoint.domain.menu.repository.MenuRepository;
 import com.coffeepoint.domain.point.entity.Point;
 import com.coffeepoint.domain.point.repository.PointHistoryRepository;
 import com.coffeepoint.domain.point.repository.PointRepository;
@@ -24,24 +26,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("test")
 class PointConcurrencyTest {
 
-    @Autowired
-    private PointService pointService;
-
-    @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private PointRepository pointRepository;
-
-    @Autowired
-    private PointHistoryRepository pointHistoryRepository;
+    @Autowired private PointService pointService;
+    @Autowired private UserRepository userRepository;
+    @Autowired private PointRepository pointRepository;
+    @Autowired private PointHistoryRepository pointHistoryRepository;
+    @Autowired private OrderRepository orderRepository;
+    @Autowired private MenuRepository menuRepository;
 
     private Long userId;
 
     @BeforeEach
     void setUp() {
+        // FK 순서: orders → point_history → point → menu → users
+        orderRepository.deleteAll();
         pointHistoryRepository.deleteAll();
         pointRepository.deleteAll();
+        menuRepository.deleteAll();
         userRepository.deleteAll();
 
         User user = userRepository.save(User.builder().name("테스트유저").build());
