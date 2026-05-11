@@ -1,6 +1,8 @@
 package com.coffeepoint.domain.point;
 
 import com.coffeepoint.domain.order.repository.OrderRepository;
+import com.coffeepoint.domain.inventory.repository.InventoryRepository;
+import com.coffeepoint.domain.outbox.repository.OutboxRepository;
 import com.coffeepoint.domain.menu.repository.MenuRepository;
 import com.coffeepoint.domain.point.entity.Point;
 import com.coffeepoint.domain.point.repository.PointHistoryRepository;
@@ -32,15 +34,18 @@ class PointConcurrencyTest {
     @Autowired private PointHistoryRepository pointHistoryRepository;
     @Autowired private OrderRepository orderRepository;
     @Autowired private MenuRepository menuRepository;
+    @Autowired private InventoryRepository inventoryRepository;
+    @Autowired private OutboxRepository outboxRepository;
 
     private Long userId;
 
     @BeforeEach
     void setUp() {
-        // FK 순서: orders → point_history → point → menu → users
+        outboxRepository.deleteAll();
         orderRepository.deleteAll();
         pointHistoryRepository.deleteAll();
         pointRepository.deleteAll();
+        inventoryRepository.deleteAll();
         menuRepository.deleteAll();
         userRepository.deleteAll();
 

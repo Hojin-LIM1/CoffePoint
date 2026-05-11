@@ -58,16 +58,19 @@ public class PointTransactionService {
     /**
      * Point 자동 생성 (findOrCreate 패턴)
      *
-     * user는 있는데 point row가 없는 상황 대비.
-     * (회원가입 시 point 생성 누락, 데이터 마이그레이션 등)
+     * 레이스 컨디션 대응:
+     *   Thread A, B 둘 다 findByUserId → empty → 둘 다 save 시도
+     *   Thread A: 성공, Thread B: DataIntegrityViolationException
+     *   → PointService의 @Retryable이 잡아서 재시도
+     *   → 새 트랜잭션에서 findByUserId → Thread A가 만든 row 반환 → 정상 진행
      */
     private Point findOrCreatePoint(Long userId) {
         return pointRepository.findByUserId(userId)
                 .orElseGet(() -> {
-                    User user = userRepository.findById(userId)
+                    userRepository.findById(userId)
                             .orElseThrow(() -> new CustomException(ErrorCode.POINT_USER_NOT_FOUND));
 
-                    log.info("[포인트 자동 생성] userId={}", user.getId());
+                    log.info("[포인트 자동 생성] userId={}", userId);
                     return pointRepository.save(Point.builder().userId(userId).build());
                 });
     }

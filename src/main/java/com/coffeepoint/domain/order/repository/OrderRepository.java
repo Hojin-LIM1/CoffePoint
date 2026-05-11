@@ -13,16 +13,17 @@ import java.util.List;
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
     /**
-     * 인기 메뉴 집계 쿼리
-     * 최근 7일간 COMPLETED 주문을 menu별로 COUNT, 상위 N개
-     * 동률 시 menu.id 오름차순
-     * JPQL은 LIMIT를 지원하지 않으므로 Pageable로 제한
+     * 인기 메뉴 집계 쿼리 (DTO Projection — N+1 방지)
+     *
+     * 수정: GROUP BY에 엔티티 대신 스칼라 값 사용
+     * - 이전: SELECT o.menu → Hibernate가 Menu 엔티티 개별 SELECT 발생 가능
+     * - 이후: SELECT o.menu.id, o.menu.name, o.menu.price → 단일 쿼리로 해결
      */
-    @Query("SELECT o.menu, COUNT(o) as orderCount " +
+    @Query("SELECT o.menu.id, o.menu.name, o.menu.price, COUNT(o) as orderCount " +
             "FROM Order o " +
             "WHERE o.status = 'COMPLETED' " +
             "AND o.createdAt >= :since " +
-            "GROUP BY o.menu " +
+            "GROUP BY o.menu.id, o.menu.name, o.menu.price " +
             "ORDER BY orderCount DESC, o.menu.id ASC")
     List<Object[]> findPopularMenus(@Param("since") LocalDateTime since, Pageable pageable);
 

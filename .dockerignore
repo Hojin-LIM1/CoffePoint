@@ -1,0 +1,14 @@
+.git
+.github
+.gradle
+build
+.idea
+*.iml
+*.ipr
+*.iws
+load-test
+infra
+docker-compose.yml
+README.md
+.gitignore
+.dockerignore

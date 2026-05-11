@@ -1,9 +1,12 @@
 package com.coffeepoint.domain.order;
 
+import com.coffeepoint.domain.inventory.entity.Inventory;
+import com.coffeepoint.domain.inventory.repository.InventoryRepository;
 import com.coffeepoint.domain.menu.entity.Menu;
 import com.coffeepoint.domain.menu.repository.MenuRepository;
 import com.coffeepoint.domain.order.repository.OrderRepository;
 import com.coffeepoint.domain.order.service.OrderService;
+import com.coffeepoint.domain.outbox.repository.OutboxRepository;
 import com.coffeepoint.domain.point.entity.Point;
 import com.coffeepoint.domain.point.repository.PointHistoryRepository;
 import com.coffeepoint.domain.point.repository.PointRepository;
@@ -17,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
+import java.time.LocalDate;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -35,15 +39,19 @@ class OrderConcurrencyTest {
     @Autowired private PointHistoryRepository pointHistoryRepository;
     @Autowired private MenuRepository menuRepository;
     @Autowired private OrderRepository orderRepository;
+    @Autowired private InventoryRepository inventoryRepository;
+    @Autowired private OutboxRepository outboxRepository;
 
     private Long userId;
     private Long menuId;
 
     @BeforeEach
     void setUp() {
+        outboxRepository.deleteAll();
         orderRepository.deleteAll();
         pointHistoryRepository.deleteAll();
         pointRepository.deleteAll();
+        inventoryRepository.deleteAll();
         menuRepository.deleteAll();
         userRepository.deleteAll();
 
@@ -53,6 +61,14 @@ class OrderConcurrencyTest {
 
         Menu menu = menuRepository.save(Menu.builder().name("아메리카노").price(1_000).build());
         menuId = menu.getId();
+
+        // 재고 100개 입고
+        inventoryRepository.save(Inventory.builder()
+                .menuId(menuId)
+                .quantity(100)
+                .receivedDate(LocalDate.now())
+                .expirationDate(LocalDate.now().plusDays(30))
+                .build());
 
         // 10,000P 충전
         pointService.charge(userId, 10_000);

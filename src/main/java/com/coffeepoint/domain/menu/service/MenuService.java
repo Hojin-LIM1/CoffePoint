@@ -175,14 +175,17 @@ public class MenuService {
         List<PopularMenuResponse> popularMenus = new ArrayList<>();
         int rank = 1;
         for (Object[] row : results) {
-            Menu menu = (Menu) row[0];
-            long orderCount = (long) row[1];
+            // DTO Projection: [menuId, menuName, menuPrice, orderCount]
+            Long menuId = (Long) row[0];
+            String menuName = (String) row[1];
+            long menuPrice = (long) row[2];
+            long orderCount = (long) row[3];
 
             popularMenus.add(PopularMenuResponse.builder()
                     .rank(rank++)
-                    .id(menu.getId())
-                    .name(menu.getName())
-                    .price(menu.getPrice())
+                    .id(menuId)
+                    .name(menuName)
+                    .price(menuPrice)
                     .orderCount(orderCount)
                     .build());
         }
