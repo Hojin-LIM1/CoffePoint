@@ -15,6 +15,7 @@ import com.coffeepoint.domain.point.repository.PointRepository;
 import com.coffeepoint.domain.user.entity.User;
 import com.coffeepoint.domain.user.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -46,7 +47,7 @@ class OrderServiceTest {
     @Mock private PointHistoryRepository pointHistoryRepository;
     @Mock private InventoryService inventoryService;
     @Mock private OutboxRepository outboxRepository;
-    @Spy  private ObjectMapper objectMapper = new ObjectMapper();
+    @Spy private ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     private Menu createMenu(String name, long price) {
         return Menu.builder().name(name).price(price).build();
