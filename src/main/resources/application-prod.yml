@@ -1,0 +1,124 @@
+# ============================================================
+# ☕ 커피포인트 v2 — Production Profile
+#
+# 멀티 인스턴스 배포 고려사항:
+#   - Stateless: 세션 없음, 인스턴스 간 상태 공유 불필요
+#   - DB: RDS MySQL (Single Source of Truth)
+#   - Cache: ElastiCache Redis (인스턴스 간 공유 캐시)
+#   - Kafka: MSK (인스턴스별 독립 Consumer)
+#   - 포인트 락: DB 낙관적 락 (어떤 인스턴스에서든 동일 동작)
+#   - 재고 락: DB 비관적 락 (어떤 인스턴스에서든 동일 동작)
+#   - Outbox: 스케줄러는 인스턴스 1개만 실행 (ShedLock 또는 리더 선출)
+# ============================================================
+
+spring:
+  application:
+    name: coffee-point
+
+  # === DB: AWS RDS MySQL ===
+  # 실제 값은 ECS Task Definition의 secrets로 주입
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 3000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate    # 프로덕션: validate만 (Flyway로 마이그레이션)
+    properties:
+      hibernate:
+        default_batch_fetch_size: 100   # N+1 방지
+        jdbc:
+          batch_size: 50                # 배치 INSERT 최적화
+        order_inserts: true
+        order_updates: true
+    open-in-view: false
+    show-sql: false
+
+  # === Cache: AWS ElastiCache Redis ===
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST}
+      port: 6379
+      timeout: 3000
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 4
+
+  # === Kafka: AWS MSK ===
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+    consumer:
+      group-id: coffee-point-analytics
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+      properties:
+        spring.json.trusted.packages: "com.coffeepoint.*"
+        max.poll.records: 100
+
+server:
+  port: 8080
+  shutdown: graceful    # Graceful Shutdown (진행 중인 요청 완료 후 종료)
+
+  # Tomcat 스레드 풀
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 20
+    accept-count: 100
+
+# Actuator (Health Check, Monitoring)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  health:
+    db:
+      enabled: true
+    redis:
+      enabled: true
+    kafka:
+      enabled: true
+
+# Kafka Topics
+app:
+  kafka:
+    topic:
+      order-completed: order-completed
+
+# Outbox 스케줄러 (프로덕션: 3초 간격, 100건 배치)
+outbox:
+  scheduler:
+    rate: 3000
+    batch-size: 100
+
+# 로깅
+logging:
+  level:
+    root: INFO
+    com.coffeepoint: INFO
+    org.hibernate.SQL: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId}] %-5level %logger{36} - %msg%n"

@@ -29,7 +29,12 @@ public enum ErrorCode {
     ORDER_CONFLICT(HttpStatus.CONFLICT, "ORDER_005", "결제 처리 중 충돌이 발생했습니다. 다시 시도해주세요"),
 
     // 메뉴
-    MENU_NOT_FOUND(HttpStatus.NOT_FOUND, "MENU_001", "메뉴를 찾을 수 없습니다");
+    MENU_NOT_FOUND(HttpStatus.NOT_FOUND, "MENU_001", "메뉴를 찾을 수 없습니다"),
+
+    // 재고
+    INVENTORY_INSUFFICIENT(HttpStatus.BAD_REQUEST, "INVENTORY_001", "재고가 부족합니다"),
+    INVENTORY_EXPIRED(HttpStatus.BAD_REQUEST, "INVENTORY_002", "유통기한이 만료된 재고입니다"),
+    INVENTORY_NOT_FOUND(HttpStatus.NOT_FOUND, "INVENTORY_003", "재고 정보를 찾을 수 없습니다");
 
     private final HttpStatus httpStatus;
     private final String code;
