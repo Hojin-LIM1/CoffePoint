@@ -77,12 +77,12 @@ class MenuControllerTest {
 
         // 아메리카노 3건, 카페라떼 2건, 카푸치노 1건
         for (int i = 0; i < 3; i++) {
-            orderRepository.save(Order.builder().user(user).menu(menu1).price(menu1.getPrice()).build());
+            orderRepository.save(Order.builder().user(user).menu(menu1).menuName(menu1.getName()).price(menu1.getPrice()).build());
         }
         for (int i = 0; i < 2; i++) {
-            orderRepository.save(Order.builder().user(user).menu(menu2).price(menu2.getPrice()).build());
+            orderRepository.save(Order.builder().user(user).menu(menu2).menuName(menu2.getName()).price(menu2.getPrice()).build());
         }
-        orderRepository.save(Order.builder().user(user).menu(menu3).price(menu3.getPrice()).build());
+        orderRepository.save(Order.builder().user(user).menu(menu3).menuName(menu3.getName()).price(menu3.getPrice()).build());
 
         // when & then
         mockMvc.perform(get("/api/menus/popular"))

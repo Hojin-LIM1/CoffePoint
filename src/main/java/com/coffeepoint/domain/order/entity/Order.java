@@ -35,6 +35,14 @@ public class Order {
     private Menu menu;
 
     /**
+     * 주문 시점의 메뉴명 스냅샷 (비정규화)
+     * 메뉴명이 변경되더라도 과거 주문 내역은 주문 당시 이름으로 보존된다
+     * e-커머스 설계 정석: 주문 데이터는 불변(Immutable)이어야 한다
+     */
+    @Column(nullable = false, length = 100)
+    private String menuName;
+
+    /**
      * 주문 시점의 가격 스냅샷
      * 메뉴 가격이 변경되더라도 주문 당시 결제 금액은 보존된다
      */
@@ -50,11 +58,12 @@ public class Order {
     private LocalDateTime createdAt;
 
     @Builder
-    public Order(User user, Menu menu, long price) {
+    public Order(User user, Menu menu, String menuName, long price) {
         this.user = user;
         this.menu = menu;
+        this.menuName = menuName;
         this.price = price;
         this.status = OrderStatus.COMPLETED;
-        this.createdAt = LocalDateTime.now(); // JPA Auditing이 persist 시 덮어쓰지만, 단위 테스트에서 null 방지
+        this.createdAt = LocalDateTime.now();
     }
 }

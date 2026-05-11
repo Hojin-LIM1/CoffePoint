@@ -150,7 +150,8 @@ Table orders {
   id bigint [pk, increment]
   user_id bigint [not null]
   menu_id bigint [not null]
-  price bigint [not null, note: '주문 시점 스냅샷']
+  menu_name varchar(100) [not null, note: '주문 시점 메뉴명 스냅샷']
+  price bigint [not null, note: '주문 시점 가격 스냅샷']
   status varchar(20) [not null]
   created_at datetime [not null]
   indexes {
@@ -221,33 +222,363 @@ Ref: order_analytics.menu_id > menu.id
 
 ## 5. API 명세
 
-### 핵심 API
+> Swagger UI: `http://localhost:8080/swagger-ui.html`
 
-| API | 메서드 | 엔드포인트 | 요청 | 응답 |
-|-----|--------|-----------|------|------|
-| 메뉴 조회 | GET | `/api/menus` | - | `[{id, name, price}]` |
-| 인기 메뉴 | GET | `/api/menus/popular` | - | `[{rank, id, name, price, orderCount}]` |
-| 포인트 충전 | PATCH | `/api/points/{userId}/charge` | `{amount}` | `{userId, balance}` |
-| 잔액 조회 | GET | `/api/points/{userId}` | - | `{userId, balance}` |
-| 주문/결제 | POST | `/api/orders` | `{userId, menuId}` | `{orderId, menuName, price, remainBalance}` |
+### 5-1. 메뉴 목록 조회
 
-### 재고 API
+`GET /api/menus`
 
-| API | 메서드 | 엔드포인트 | 설명 |
-|-----|--------|-----------|------|
-| 재고 조회 | GET | `/api/inventory/{menuId}` | 가용 재고 수량 |
-| 재고 상세 | GET | `/api/inventory/{menuId}/detail` | 유통기한별 상세 목록 |
-| 재고 입고 | POST | `/api/inventory` | 신규 재고 입고 |
+캐싱: Caffeine 로컬 캐시 (TTL 10분)
 
-### 분석 API
+**Request**: 없음
 
-| API | 메서드 | 엔드포인트 | 설명 |
-|-----|--------|-----------|------|
-| 인기 메뉴 분석 | GET | `/api/analytics/popular-menus?from=&to=` | 기간별 메뉴 매출 |
-| 시간대별 분포 | GET | `/api/analytics/hourly?from=&to=` | 시간대별 주문 수 |
-| 일별 매출 | GET | `/api/analytics/daily-revenue?from=&to=` | 일별 매출 추이 |
+**Response**: `200 OK`
 
-### 에러 코드
+```json
+[
+  {
+    "id": 1,
+    "name": "아메리카노",
+    "price": 4500
+  },
+  {
+    "id": 2,
+    "name": "카페라떼",
+    "price": 5000
+  }
+]
+```
+
+---
+
+### 5-2. 인기 메뉴 조회
+
+`GET /api/menus/popular`
+
+캐싱: Redis ZSET + SETNX Stampede 방어 (TTL 5분), 최근 7일 기준 TOP 3
+
+**Request**: 없음
+
+**Response**: `200 OK`
+
+```json
+[
+  {
+    "rank": 1,
+    "id": 1,
+    "name": "아메리카노",
+    "price": 4500,
+    "orderCount": 127
+  },
+  {
+    "rank": 2,
+    "id": 2,
+    "name": "카페라떼",
+    "price": 5000,
+    "orderCount": 98
+  },
+  {
+    "rank": 3,
+    "id": 5,
+    "name": "카라멜마끼아또",
+    "price": 6000,
+    "orderCount": 73
+  }
+]
+```
+
+---
+
+### 5-3. 포인트 충전
+
+`PATCH /api/points/{userId}/charge`
+
+동시성: @Version 낙관적 락 + @Retryable (3회, 50ms 간격)
+
+**Request**:
+
+| 필드 | 타입 | 필수 | 설명 | 제약 |
+|------|------|------|------|------|
+| amount | long | ✅ | 충전 금액 | 최소 1,000 / 최대 1,000,000 / 잔액 한도 10,000,000 |
+
+```json
+{
+  "amount": 10000
+}
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "userId": 1,
+  "balance": 60000
+}
+```
+
+**Error Responses**:
+
+| HTTP | 코드 | 조건 |
+|------|------|------|
+| 400 | POINT_001 | 충전 금액 < 1,000 |
+| 400 | POINT_002 | 충전 금액 > 1,000,000 |
+| 400 | POINT_003 | 충전 후 잔액 > 10,000,000 |
+| 404 | POINT_004 | 존재하지 않는 사용자 |
+
+```json
+{
+  "code": "POINT_001",
+  "message": "최소 충전 금액은 1,000P입니다"
+}
+```
+
+---
+
+### 5-4. 포인트 잔액 조회
+
+`GET /api/points/{userId}`
+
+**Request**: 없음
+
+**Response**: `200 OK`
+
+```json
+{
+  "userId": 1,
+  "balance": 50000
+}
+```
+
+---
+
+### 5-5. 주문/결제
+
+`POST /api/orders`
+
+동시성: 재고 — 비관적 락(SELECT FOR UPDATE, FIFO), 포인트 — 낙관적 락(@Version + @Retryable)
+
+트랜잭션: 재고 차감 + 포인트 차감 + 주문 생성 + Outbox INSERT (같은 TX, 원자적)
+
+**Request**:
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| userId | Long | ✅ | 주문자 ID |
+| menuId | Long | ✅ | 메뉴 ID |
+
+```json
+{
+  "userId": 1,
+  "menuId": 1
+}
+```
+
+**Response**: `201 Created`
+
+```json
+{
+  "orderId": 42,
+  "menuName": "아메리카노",
+  "price": 4500,
+  "remainBalance": 45500
+}
+```
+
+`menuName`과 `price`는 주문 시점 스냅샷입니다. 이후 메뉴 정보가 변경되어도 이 값은 보존됩니다.
+
+**Error Responses**:
+
+| HTTP | 코드 | 조건 |
+|------|------|------|
+| 400 | ORDER_001 | 포인트 잔액 부족 |
+| 404 | ORDER_002 | 존재하지 않는 메뉴 |
+| 400 | ORDER_003 | 비활성(판매 중지) 메뉴 |
+| 404 | ORDER_004 | 존재하지 않는 사용자 |
+| 400 | INVENTORY_001 | 재고 부족 |
+
+```json
+{
+  "code": "INVENTORY_001",
+  "message": "재고가 부족합니다"
+}
+```
+
+---
+
+### 5-6. 재고 조회
+
+`GET /api/inventory/{menuId}`
+
+**Request**: 없음
+
+**Response**: `200 OK`
+
+```json
+{
+  "menuId": 1,
+  "availableQuantity": 87
+}
+```
+
+---
+
+### 5-7. 재고 상세 (유통기한순)
+
+`GET /api/inventory/{menuId}/detail`
+
+FIFO 차감 순서와 동일한 유통기한 오름차순으로 반환
+
+**Request**: 없음
+
+**Response**: `200 OK`
+
+```json
+[
+  {
+    "id": 1,
+    "menuId": 1,
+    "quantity": 37,
+    "receivedDate": "2025-05-01",
+    "expirationDate": "2025-05-20",
+    "status": "AVAILABLE"
+  },
+  {
+    "id": 5,
+    "menuId": 1,
+    "quantity": 50,
+    "receivedDate": "2025-05-08",
+    "expirationDate": "2025-06-07",
+    "status": "AVAILABLE"
+  }
+]
+```
+
+---
+
+### 5-8. 재고 입고
+
+`POST /api/inventory`
+
+**Request**:
+
+| 필드 | 타입 | 필수 | 설명 | 제약 |
+|------|------|------|------|------|
+| menuId | Long | ✅ | 메뉴 ID | |
+| quantity | int | ✅ | 입고 수량 | 1 이상 |
+| receivedDate | LocalDate | ✅ | 입고일 | |
+| expirationDate | LocalDate | ✅ | 유통기한 | 미래 날짜 |
+
+```json
+{
+  "menuId": 1,
+  "quantity": 50,
+  "receivedDate": "2025-05-09",
+  "expirationDate": "2025-06-08"
+}
+```
+
+**Response**: `201 Created`
+
+```json
+{
+  "id": 6,
+  "menuId": 1,
+  "quantity": 50,
+  "receivedDate": "2025-05-09",
+  "expirationDate": "2025-06-08",
+  "status": "AVAILABLE"
+}
+```
+
+---
+
+### 5-9. 인기 메뉴 분석 (매출 포함)
+
+`GET /api/analytics/popular-menus?from={date}&to={date}`
+
+데이터 소스: Kafka Consumer가 집계한 order_analytics 테이블
+
+**Request**:
+
+| 파라미터 | 타입 | 필수 | 설명 | 예시 |
+|----------|------|------|------|------|
+| from | LocalDate | ✅ | 시작일 | 2025-05-01 |
+| to | LocalDate | ✅ | 종료일 | 2025-05-09 |
+
+**Response**: `200 OK`
+
+```json
+[
+  {
+    "rank": 1,
+    "menuId": 1,
+    "menuName": "아메리카노",
+    "orderCount": 127,
+    "totalRevenue": 571500
+  },
+  {
+    "rank": 2,
+    "menuId": 2,
+    "menuName": "카페라떼",
+    "orderCount": 98,
+    "totalRevenue": 490000
+  }
+]
+```
+
+---
+
+### 5-10. 시간대별 주문 분포
+
+`GET /api/analytics/hourly?from={date}&to={date}`
+
+**Request**: `from`, `to` (5-9와 동일)
+
+**Response**: `200 OK`
+
+```json
+[
+  { "hour": 9, "orderCount": 45 },
+  { "hour": 10, "orderCount": 78 },
+  { "hour": 11, "orderCount": 112 },
+  { "hour": 12, "orderCount": 89 },
+  { "hour": 13, "orderCount": 67 },
+  { "hour": 14, "orderCount": 53 }
+]
+```
+
+---
+
+### 5-11. 일별 매출 추이
+
+`GET /api/analytics/daily-revenue?from={date}&to={date}`
+
+**Request**: `from`, `to` (5-9와 동일)
+
+**Response**: `200 OK`
+
+```json
+[
+  { "date": "2025-05-05", "revenue": 312000 },
+  { "date": "2025-05-06", "revenue": 267500 },
+  { "date": "2025-05-07", "revenue": 298000 },
+  { "date": "2025-05-08", "revenue": 345000 },
+  { "date": "2025-05-09", "revenue": 189500 }
+]
+```
+
+---
+
+### 에러 응답 공통 형식
+
+모든 에러는 동일한 형식으로 반환됩니다.
+
+```json
+{
+  "code": "ORDER_001",
+  "message": "포인트 잔액이 부족합니다"
+}
+```
 
 | 코드 | HTTP | 설명 |
 |------|------|------|
@@ -256,9 +587,12 @@ Ref: order_analytics.menu_id > menu.id
 | ORDER_003 | 400 | 비활성 메뉴 |
 | ORDER_004 | 404 | 사용자 없음 |
 | INVENTORY_001 | 400 | 재고 부족 |
+| INVENTORY_002 | 400 | 유통기한 만료 재고 |
+| INVENTORY_003 | 404 | 재고 정보 없음 |
 | POINT_001 | 400 | 최소 금액 미달 (1,000P) |
 | POINT_002 | 400 | 최대 금액 초과 (1,000,000P) |
 | POINT_003 | 400 | 보유 한도 초과 (10,000,000P) |
+| POINT_004 | 404 | 사용자 없음 |
 
 ---
 
@@ -616,20 +950,33 @@ mysql -u coffee -pcoffee1234 coffee_point < load-test/verify-v2.sql
 
 ## 13. 기술적 한계 및 확장 방향
 
-### 의도적 트레이드오프
+### 설계 결정과 트레이드오프
 
-**Analytics Consumer 집계 유실 가능성 (Eventual Consistency)**
+**주문 스냅샷 (menuName + price 비정규화)**
 
-UPSERT 시 UniqueConstraint 충돌이 발생하면 해당 메시지 1건을 skip합니다. Analytics는 집계 데이터이므로 1건 유실은 허용 가능하며, 다음 메시지부터 정상 처리됩니다. 완벽한 정확성이 필요하면 DB UPSERT(`INSERT ON DUPLICATE KEY UPDATE`)로 전환할 수 있습니다.
+주문 데이터는 "과거의 기록(불변)"이어야 합니다. `Order` 엔티티에 `menuName`과 `price`를 별도 컬럼으로 저장하여, 메뉴명·가격이 변경되더라도 과거 주문 이력은 주문 당시 상태로 보존됩니다. `OrderResponse`에서 `order.getMenu().getName()` 대신 `order.getMenuName()`을 사용하므로 Menu LAZY 로딩도 발생하지 않습니다.
+
+**재고 비관적 락 vs Redis DECR**
+
+현재는 DB 비관적 락(`SELECT FOR UPDATE`)으로 재고를 차감합니다. 초고트래픽(동일 메뉴 1,000건/초 이상)에서는 단일 row에 락 경합이 발생할 수 있습니다. Redis `DECR`로 메모리에서 먼저 차감하고 비동기로 DB에 반영하면 성능이 개선되지만, Redis-DB 간 정합성이라는 새로운 복잡도가 생깁니다. 현재 "카페" 도메인의 트래픽 규모에서는 DB 락이 정합성과 단순성 측면에서 더 합리적이라고 판단했습니다.
+
+**Kafka DLT (Dead Letter Topic)**
+
+Consumer에서 3회 재시도 후에도 실패한 메시지를 `order-completed.DLT` 토픽으로 전송합니다. 로직 버그로 수만 건이 연속 실패해도 메시지가 유실되지 않으며, 버그 수정 후 DLT 토픽을 다시 읽어 재처리할 수 있습니다.
+
+**Outbox 테이블 데이터 관리**
+
+SENT 이벤트는 매일 새벽 2시에 7일 이전 데이터를 벌크 삭제합니다. 하루 1회 벌크 삭제이므로 테이블 단편화 우려가 크지 않습니다. 데이터 규모가 수천만 건 이상으로 성장하면 날짜별 테이블 파티셔닝으로 파티션 단위 DROP이 가능합니다.
 
 ### 확장 방향
 
 | 확장 | 현재 설계에서의 대응 | 도입 시 변경 |
 |------|---------------------|-------------|
-| Outbox 스케줄러 분산 락 | SKIP LOCKED | ShedLock (DB 기반 분산 스케줄러 락) |
-| Kafka DLT | 실패 시 skip + 로그 | Dead Letter Topic으로 전송 → 재처리 |
+| 재고 Redis DECR | DB 비관적 락 (정합성 우선) | Redis 원자적 차감 → 비동기 DB 반영 |
+| Outbox 분산 락 | SKIP LOCKED | ShedLock (DB 기반 분산 스케줄러 락) |
+| Outbox 파티셔닝 | 벌크 DELETE (하루 1회) | 날짜별 파티셔닝 → 파티션 DROP |
 | CQRS | 단일 DB | 읽기 전용 레플리카 또는 Materialized View |
-| Redis 분산 락 | DB 낙관적 락 | AOP 기반 분산 락 어노테이션 (Redisson) |
+| Redis 분산 락 | DB 낙관적 락 | AOP 기반 분산 락 (Redisson) |
 | DB 마이그레이션 | `ddl-auto: create` | Flyway 도입 → `ddl-auto: validate` |
 
 ---

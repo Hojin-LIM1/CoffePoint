@@ -16,7 +16,7 @@ public class OrderResponse {
     public static OrderResponse of(Order order, long remainBalance) {
         return OrderResponse.builder()
                 .orderId(order.getId())
-                .menuName(order.getMenu().getName())
+                .menuName(order.getMenuName())  // 스냅샷 (menu 엔티티 LAZY 로딩 없음)
                 .price(order.getPrice())
                 .remainBalance(remainBalance)
                 .build();

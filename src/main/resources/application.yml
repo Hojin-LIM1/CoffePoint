@@ -3,7 +3,7 @@ spring:
     name: coffee-point
 
   datasource:
-    url: jdbc:mysql://localhost:3306/coffeeshop?useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3306/coffeeshop?useSSL=false&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
     username: root
     password: 12345678
     driver-class-name: com.mysql.cj.jdbc.Driver
