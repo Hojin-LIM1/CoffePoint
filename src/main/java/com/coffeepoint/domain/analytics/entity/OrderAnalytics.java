@@ -27,7 +27,7 @@ import java.time.LocalDateTime;
         @Index(name = "idx_analytics_date_menu", columnList = "orderDate, menuId"),
         @Index(name = "idx_analytics_date", columnList = "orderDate")
 }, uniqueConstraints = {
-        @UniqueConstraint(name = "uk_analytics_menu_date_hour", columnList = "menuId, orderDate, orderHour")
+        @UniqueConstraint(name = "uk_analytics_menu_date_hour", columnNames = {"menuId, orderDate, orderHour"})
 })
 @EntityListeners(AuditingEntityListener.class)
 @Getter
