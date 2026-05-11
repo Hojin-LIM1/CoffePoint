@@ -34,14 +34,14 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * 트랜잭션 경계:
  * ┌─ @Transactional ──────────────────────────────────────────┐
- * │  1. 포인트 조회 (= 사용자 존재 검증)                           │
- * │  2. 메뉴 조회 + 상태 검증                                    │
- * │  3. 가격 스냅샷 추출                                         │
+ * │  1. 포인트 조회 (= 사용자 존재 검증)                         │
+ * │  2. 메뉴 조회 + 상태 검증                                   │
+ * │  3. 가격 스냅샷 추출                                        │
  * │  4. 재고 차감 (비관적 락, FIFO)                              │
- * │  5. 포인트 차감 (낙관적 락)                                   │
+ * │  5. 포인트 차감 (낙관적 락)                                  │
  * │  6. 주문 생성 (saveAndFlush)                                │
  * │  7. 포인트 이력 저장 (Append-Only)                           │
- * │  8. Outbox 이벤트 저장 (같은 트랜잭션 → 유실 불가)               │
+ * │  8. Outbox 이벤트 저장 (같은 트랜잭션 → 유실 불가)            │
  * │  9. 커밋                                                    │
  * └────────────────────────────────────────────────────────────┘
  *                          │
@@ -79,8 +79,10 @@ public class OrderTransactionService {
             throw new CustomException(ErrorCode.ORDER_MENU_INACTIVE);
         }
 
-        // 3. 가격 스냅샷 (1회 추출)
+        // 3. 주문 시점 스냅샷 (가격 + 메뉴명, 1회 추출)
+        //    메뉴명·가격이 이후 변경되어도 주문 이력은 불변으로 보존
         long orderPrice = menu.getPrice();
+        String orderMenuName = menu.getName();
 
         // 4. 재고 차감 (비관적 락 + FIFO)
         //    주문 1건 = 재고 1개 차감
@@ -90,12 +92,13 @@ public class OrderTransactionService {
         // 5. 포인트 차감 (낙관적 락)
         point.use(orderPrice);
 
-        // 6. 주문 생성
+        // 6. 주문 생성 (menuName + price 스냅샷 — 주문 데이터 불변성)
         User userRef = userRepository.getReferenceById(userId);
         Order order = orderRepository.saveAndFlush(
                 Order.builder()
                         .user(userRef)
                         .menu(menu)
+                        .menuName(orderMenuName)
                         .price(orderPrice)
                         .build()
         );
@@ -106,7 +109,7 @@ public class OrderTransactionService {
         );
 
         // 8. Outbox 이벤트 저장 (같은 트랜잭션 → 유실 불가)
-        saveOutboxEvent(order, userId, menuId, menu.getName(), orderPrice);
+        saveOutboxEvent(order, userId, menuId, orderMenuName, orderPrice);
 
         return OrderResponse.of(order, point.getBalance());
     }

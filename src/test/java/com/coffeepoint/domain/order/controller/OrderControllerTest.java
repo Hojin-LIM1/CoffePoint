@@ -112,7 +112,6 @@ class OrderControllerTest {
         Menu expensiveMenu = menuRepository.save(
                 Menu.builder().name("프리미엄라떼").price(15_000).build());
 
-        //  [추가된 코드] 비싼 메뉴에 대한 재고 추가
         inventoryRepository.save(Inventory.builder()
                 .menuId(expensiveMenu.getId())
                 .quantity(10)

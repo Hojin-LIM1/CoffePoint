@@ -11,16 +11,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 주문 분석 Kafka Consumer v2.1
+ * 주문 분석 Kafka Consumer v2.2
  *
- * UPSERT 레이스 컨디션 대응:
- *   findForUpdate (비관적 락) → row 있으면 락 획득 후 업데이트
- *   row 없으면 INSERT 시도 → UniqueConstraint 충돌 시 메시지 skip
- *   → 다음 메시지에서 findForUpdate가 반드시 찾으므로 1건 유실만 발생
- *   → Analytics는 집계 데이터이므로 1건 유실은 허용 가능 (Eventual Consistency)
+ * 에러 처리:
+ *   1차: 비관적 락 findForUpdate → 동시 접근 안전
+ *   2차: 처리 실패 시 DefaultErrorHandler가 3회 재시도
+ *   3차: 3회 모두 실패 → DLT(Dead Letter Topic)로 전송 → 재처리 가능
  *
  * 이전 문제:
- *   saveAndFlush 예외 후 같은 TX에서 재조회 → Hibernate 세션 오염으로 실패
+ *   try-catch로 skip → 수만 건 실패 시 추적 불가
  */
 @Slf4j
 @Component
@@ -36,34 +35,35 @@ public class OrderAnalyticsConsumer {
     )
     @Transactional
     public void consume(String message) {
+        // 역직렬화 실패 시 예외 → DefaultErrorHandler가 재시도 후 DLT로 전송
+        OrderCompletedEvent event = deserialize(message);
+
+        // 비관적 락으로 조회 → 없으면 생성
+        OrderAnalytics analytics = analyticsRepository.findForUpdate(
+                        event.getMenuId(),
+                        event.getOrderedAt().toLocalDate(),
+                        event.getOrderedAt().getHour())
+                .orElseGet(() -> analyticsRepository.save(
+                        OrderAnalytics.builder()
+                                .menuId(event.getMenuId())
+                                .menuName(event.getMenuName())
+                                .orderDate(event.getOrderedAt().toLocalDate())
+                                .orderHour(event.getOrderedAt().getHour())
+                                .build()
+                ));
+
+        analytics.addOrder(event.getPrice());
+
+        log.info("[Analytics] 집계: menuId={}, hour={}, count={}, revenue={}",
+                event.getMenuId(), event.getOrderedAt().getHour(),
+                analytics.getOrderCount(), analytics.getTotalRevenue());
+    }
+
+    private OrderCompletedEvent deserialize(String message) {
         try {
-            OrderCompletedEvent event = objectMapper.readValue(message, OrderCompletedEvent.class);
-
-            // 비관적 락으로 조회: row 있으면 락 획득
-            OrderAnalytics analytics = analyticsRepository.findForUpdate(
-                            event.getMenuId(),
-                            event.getOrderedAt().toLocalDate(),
-                            event.getOrderedAt().getHour())
-                    .orElseGet(() -> analyticsRepository.save(
-                            OrderAnalytics.builder()
-                                    .menuId(event.getMenuId())
-                                    .menuName(event.getMenuName())
-                                    .orderDate(event.getOrderedAt().toLocalDate())
-                                    .orderHour(event.getOrderedAt().getHour())
-                                    .build()
-                    ));
-
-            analytics.addOrder(event.getPrice());
-
-            log.info("[Analytics] 집계: menuId={}, hour={}, count={}, revenue={}",
-                    event.getMenuId(), event.getOrderedAt().getHour(),
-                    analytics.getOrderCount(), analytics.getTotalRevenue());
-
+            return objectMapper.readValue(message, OrderCompletedEvent.class);
         } catch (Exception e) {
-            // UniqueConstraint 충돌 포함 모든 예외: 로그 후 skip
-            // Analytics는 집계 데이터 → 1건 유실은 허용 가능 (다음 메시지에서 정상 처리)
-            // 프로덕션: DLT(Dead Letter Topic)로 전송하여 재처리 가능하게
-            log.warn("[Analytics] 이벤트 처리 실패 (skip): {}", e.getMessage());
+            throw new RuntimeException("[Analytics] 메시지 역직렬화 실패", e);
         }
     }
 }

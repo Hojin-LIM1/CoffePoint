@@ -110,10 +110,20 @@ class AnalyticsConsumerTest {
     }
 
     @Test
-    @DisplayName("잘못된 메시지가 와도 예외 없이 처리된다")
-    void consumeInvalidMessageDoesNotThrow() {
-        // when & then: 예외 발생하지 않음
-        consumer.consume("{ invalid json }");
-        consumer.consume("");
+    @DisplayName("잘못된 메시지가 오면 예외를 발생시켜 DLT 핸들러가 처리하도록 한다")
+    void consumeInvalidMessageThrowsException() {
+        // given
+        String invalidJson = "{ invalid json }";
+        String emptyJson = "";
+
+        // when & then: 이제는 에외가 밖으로 던져져야(Throw) 정상입니다!
+        org.junit.jupiter.api.Assertions.assertThrows(Exception.class, () -> {
+            consumer.consume(invalidJson);
+        });
+
+        org.junit.jupiter.api.Assertions.assertThrows(Exception.class, () -> {
+            consumer.consume(emptyJson);
+        });
     }
+
 }

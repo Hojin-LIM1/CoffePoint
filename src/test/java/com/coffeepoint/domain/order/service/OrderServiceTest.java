@@ -47,7 +47,8 @@ class OrderServiceTest {
     @Mock private PointHistoryRepository pointHistoryRepository;
     @Mock private InventoryService inventoryService;
     @Mock private OutboxRepository outboxRepository;
-    @Spy private ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+    @Spy  private ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+
 
     private Menu createMenu(String name, long price) {
         return Menu.builder().name(name).price(price).build();
